@@ -22,6 +22,7 @@ frame_lane = None
 frame_no_plant = None
 plant_list = ['peashooter', 'sunflower', 'wallnut', 'potatomine']
 is_selection_window_open = False  # 선택 창 상태를 위한 변수
+selected_cell = None
 click_count = 0
 
 class PolicyNetV2(nn.Module):
@@ -117,7 +118,9 @@ class ReinforceAgentV2():
         return mask
 
 
-
+DDQN = None
+env1 = gym.make("gym_pvz:pvz-env-v2")
+obs1 = env1._get_obs()
 
 class PlayerV2():
     DECIDE = False
@@ -159,8 +162,10 @@ class PlayerV2():
         return np.sum(grid, axis=1)/HP_NORM
 
     def play(self, agent, epsilon=0):
+        global DDQN, env1, obs1
         summary = {'rewards': [], 'observations': [], 'actions': []}
         observation = self._transform_observation(self.env.reset())
+        DDQN = torch.load("agents/agent_zoo/dfq5_epsexp")
         clock = pygame.time.Clock()
         screen = pygame.display.set_mode((1450, 650))
         myfont = pygame.font.SysFont('calibri', 30)
@@ -193,6 +198,8 @@ class PlayerV2():
             observation, reward, done, info = self.env.step(action)
             observation = self._transform_observation(observation)
             summary['rewards'].append(reward)
+
+            
             
             if done:
                 break
@@ -209,7 +216,7 @@ class PlayerV2():
 flag = 0
 
 def render_frame(screen, render_info, clock, myfont, zombie_sprite, plant_sprite, projectile_sprite, agent):
-    global flag, is_selection_window_open, click_count, frame_lane, frame_pos, frame_no_plant
+    global flag, is_selection_window_open, click_count, frame_lane, frame_pos, frame_no_plant, selected_cell, env1, DDQN
     clock.tick(config.FPS)
     screen.fill((130, 200, 100))
     if render_info is not None:
@@ -224,6 +231,8 @@ def render_frame(screen, render_info, clock, myfont, zombie_sprite, plant_sprite
     #frame_info = render_info[0] if render_info else None
    
     if frame_info:
+        ddqn1 = DDQN.get_qvals_for_render(env1._get_obs())
+        print(ddqn1)
         print(frame_info)
         #print("render_frame 그리기")
         cell_size = 75
@@ -235,6 +244,13 @@ def render_frame(screen, render_info, clock, myfont, zombie_sprite, plant_sprite
         for j in range(config.N_LANES + 1):
             pygame.draw.line(screen, (0, 0, 0), (offset_border, offset_border + j * cell_size),
                              (offset_border + cell_size * config.LANE_LENGTH, offset_border + j * cell_size), 1)
+
+        # 클릭된 셀을 빨간색으로 표시 (선택 창이 열려 있을 때만)
+        if selected_cell and is_selection_window_open:
+            pygame.draw.rect(screen, (255, 0, 0),
+                             (offset_border + selected_cell[1] * cell_size,
+                              offset_border + selected_cell[0] * cell_size,
+                              cell_size, cell_size))
 
         for lane in range(config.N_LANES):
             for zombie_name, pos, offset in frame_info["zombies"][lane]:
@@ -279,6 +295,7 @@ def render_frame(screen, render_info, clock, myfont, zombie_sprite, plant_sprite
                     frame_lane = grid_y
                     frame_pos = grid_x
                     is_selection_window_open = True
+                    selected_cell = (frame_lane, frame_pos)  # 선택된 셀 저장
                     print("grid를 lane, pos에 적용합니다.")
                 print("grid 클릭 pos: ", frame_pos, "lane: ", frame_lane)
             
@@ -289,9 +306,9 @@ def render_frame(screen, render_info, clock, myfont, zombie_sprite, plant_sprite
                     # 선택 창의 버튼 클릭 시
                     if 500 + idx * 100 <= mouse_x <= 500 + (idx + 1) * 100 and 300 <= mouse_y <= 400:
                         click_count = 1
-                        if idx is 0:
+                        if idx == 0:
                             frame_no_plant = 1
-                        elif idx is 1: 
+                        elif idx == 1: 
                             frame_no_plant = 0
                         else:
                             frame_no_plant = idx
@@ -300,25 +317,27 @@ def render_frame(screen, render_info, clock, myfont, zombie_sprite, plant_sprite
                         #click_count = agent.decide_action(0,0,0,0) + 100 # 리턴 값 101나옴 그러면, decide_action 리턴이 1이라는 뜻인데..
                 agent.set_parameters(frame_lane,frame_pos, frame_no_plant)
                 is_selection_window_open = False  # 선택 창 닫기
+                selected_cell = None  # 선택 창 닫힐 때 빨간색 표시 제거
                 print("식물 설치 pos: ", frame_pos, "lane: ", frame_lane, "no_plant: ", frame_no_plant)
 
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:  # ESC 키로 창 닫기
                     is_selection_window_open = False
+                    selected_cell = None  # 선택 창 닫힐 때 빨간색 표시 제거
 
 
-        # 선택 창 그리기 추가
+        # 선택 창 그리기
         if is_selection_window_open:
-            # 선택 창 배경 그리기
-            pygame.draw.rect(screen, (200, 200, 200), (400, 200, 600, 300))
+            selection_window = pygame.Surface((600, 300), pygame.SRCALPHA)
+            selection_window.fill((200, 200, 200, 180))  # 70% 투명도 적용
+            screen.blit(selection_window, (400, 200))
             pygame.draw.rect(screen, (0, 0, 0), (400, 200, 600, 300), 2)
             
-            # 각 Plant 이미지와 버튼 그리기
             for idx, plant in enumerate(plant_list):
-                screen.blit(plant_sprite[plant], (500 + idx * 100, 250))  # Plant 이미지
-                pygame.draw.rect(screen, (0, 0, 0), (500 + idx * 100, 300, 100, 50), 2)  # 선택 버튼
+                screen.blit(plant_sprite[plant], (500 + idx * 100, 250))
+                pygame.draw.rect(screen, (0, 0, 0), (500 + idx * 100, 300, 100, 50), 2)
                 button_text = myfont.render('Select', False, (0, 0, 0))
-                screen.blit(button_text, (520 + idx * 100, 310))  # 버튼 텍스트
+                screen.blit(button_text, (520 + idx * 100, 310))
 
     pygame.display.flip()
 

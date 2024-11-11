@@ -1,4 +1,4 @@
-FPS = 2
+FPS = 4
 
 MAX_FRAMES=400
 

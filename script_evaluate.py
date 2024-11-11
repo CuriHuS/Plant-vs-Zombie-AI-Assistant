@@ -39,7 +39,7 @@ if __name__ == "__main__":
         
     if agent_type == "DDQN":
         env = PlayerQ(render=False)
-        agent = torch.load("agents/agent_zoo/dfq5_epsexp")
+        agent = torch.load("agents/agent_zoo/dfq5_epsexp_znet_1.5x")
     
     if agent_type == "DQN":
         env = PlayerQ_DQN(render=False)

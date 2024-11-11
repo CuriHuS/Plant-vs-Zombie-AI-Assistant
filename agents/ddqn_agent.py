@@ -61,13 +61,15 @@ class QNetwork(nn.Module):
             action = np.random.choice(self.actions[mask])
         else:
             action = self.get_greedy_action(state, mask)
-        print("ddqn에서 decide_action")
         return action
     
     def get_greedy_action(self, state, mask):
         qvals = self.get_qvals(state)
         qvals[np.logical_not(mask)] = qvals.min()
         return torch.max(qvals, dim=-1)[1].item()
+
+    def get_qvals_for_render(self, state):
+        return self.get_qvals(state) # state가 인풋
 
     def get_qvals(self, state, use_zombienet=True):
         if type(state) is tuple:
