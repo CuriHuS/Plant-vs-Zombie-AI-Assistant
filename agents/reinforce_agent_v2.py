@@ -118,9 +118,6 @@ class ReinforceAgentV2():
         return mask
 
 
-DDQN = None
-env1 = gym.make("gym_pvz:pvz-env-v2")
-obs1 = env1._get_obs()
 
 class PlayerV2():
     DECIDE = False
@@ -162,10 +159,10 @@ class PlayerV2():
         return np.sum(grid, axis=1)/HP_NORM
 
     def play(self, agent, epsilon=0):
-        global DDQN, env1, obs1
         summary = {'rewards': [], 'observations': [], 'actions': []}
         observation = self._transform_observation(self.env.reset())
         DDQN = torch.load("agents/agent_zoo/dfq5_epsexp")
+        obs = self.env._get_obs()
         clock = pygame.time.Clock()
         screen = pygame.display.set_mode((1450, 650))
         myfont = pygame.font.SysFont('calibri', 30)
@@ -184,7 +181,7 @@ class PlayerV2():
             clock.tick(config.FPS)
             if True:
                 #print("화면 렌더링")
-                render_frame(screen, self.get_render_info(), clock, myfont, zombie_sprite, plant_sprite, projectile_sprite, agent)
+                render_frame(screen, self.get_render_info(), clock, myfont, zombie_sprite, plant_sprite, projectile_sprite, agent, DDQN, self.env)
             
             if np.random.random() < epsilon:
                 action = np.random.choice(self.get_actions(), 1)[0]
@@ -215,8 +212,8 @@ class PlayerV2():
 
 flag = 0
 
-def render_frame(screen, render_info, clock, myfont, zombie_sprite, plant_sprite, projectile_sprite, agent):
-    global flag, is_selection_window_open, click_count, frame_lane, frame_pos, frame_no_plant, selected_cell, env1, DDQN
+def render_frame(screen, render_info, clock, myfont, zombie_sprite, plant_sprite, projectile_sprite, agent, DDQN, env):
+    global flag, is_selection_window_open, click_count, frame_lane, frame_pos, frame_no_plant, selected_cell
     clock.tick(config.FPS)
     screen.fill((130, 200, 100))
     if render_info is not None:
@@ -231,7 +228,7 @@ def render_frame(screen, render_info, clock, myfont, zombie_sprite, plant_sprite
     #frame_info = render_info[0] if render_info else None
    
     if frame_info:
-        ddqn1 = DDQN.get_qvals_for_render(env1._get_obs())
+        ddqn1 = DDQN.get_qvals_for_render(env._get_obs())
         print(ddqn1)
         print(frame_info)
         #print("render_frame 그리기")
