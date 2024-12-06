@@ -20,10 +20,11 @@ SUN_NORM = 200
 frame_pos = None
 frame_lane = None
 frame_no_plant = None
-plant_list = ['peashooter', 'sunflower', 'wallnut', 'potatomine']
+plant_list = ['sunflower','peashooter', 'wallnut', 'potatomine']
 is_selection_window_open = False  # 선택 창 상태를 위한 변수
 selected_cell = None
 click_count = 0
+sum_score = 0
 
 class PolicyNetV2(nn.Module):
     def __init__(self, input_size, output_size, hidden_size=50):
@@ -159,10 +160,10 @@ class PlayerV2():
         return np.sum(grid, axis=1)/HP_NORM
 
     def play(self, agent, epsilon=0):
+        global sum_score
         summary = {'rewards': [], 'observations': [], 'actions': []}
         observation = self._transform_observation(self.env.reset())
         DDQN = torch.load("agents/agent_zoo/dfq5_epsexp")
-        obs = self.env._get_obs()
         clock = pygame.time.Clock()
         screen = pygame.display.set_mode((1450, 650))
         myfont = pygame.font.SysFont('calibri', 30)
@@ -170,8 +171,8 @@ class PlayerV2():
                     "zombie_cone": pygame.image.load("assets/zombie_cone_scaled.png").convert_alpha(),
                     "zombie_bucket": pygame.image.load("assets/zombie_bucket_scaled.png").convert_alpha(),
                     "zombie_flag": pygame.image.load("assets/zombie_flag_scaled.png").convert_alpha()}
-        plant_sprite = {"peashooter": pygame.image.load("assets/peashooter_scaled.png").convert_alpha(),
-                        "sunflower": pygame.image.load("assets/sunflower_scaled.png").convert_alpha(),
+        plant_sprite = {"sunflower": pygame.image.load("assets/sunflower_scaled.png").convert_alpha(),
+                        "peashooter": pygame.image.load("assets/peashooter_scaled.png").convert_alpha(),
                         "wallnut": pygame.image.load("assets/wallnut_scaled.png").convert_alpha(),
                         "potatomine": pygame.image.load("assets/potatomine_scaled.png").convert_alpha()}
         projectile_sprite = {"pea": pygame.image.load("assets/pea.png").convert_alpha()}
@@ -188,23 +189,24 @@ class PlayerV2():
             else:
                 #print("reinforce_agent_v2에서 action 설정")
                 action = agent.decide_action(observation,0,0,0)
+                observation = self.env._get_obs()
                 #action = agent.decide_action(observation, self.lane, self.pos, self.no_plant)
                     
             summary['observations'].append(observation)
             summary['actions'].append(action)
             observation, reward, done, info = self.env.step(action)
+            sum_score += reward
             observation = self._transform_observation(observation)
-            summary['rewards'].append(reward)
-
-            
+            summary['rewards'].append(reward)            
             
             if done:
                 break
 
-        pygame.quit()
         summary['observations'] = np.vstack(summary['observations'])
         summary['actions'] = np.vstack(summary['actions'])
         summary['rewards'] = np.vstack(summary['rewards'])
+        pygame.quit()
+        
         return summary
 
     def get_render_info(self):
@@ -212,25 +214,56 @@ class PlayerV2():
 
 flag = 0
 
+
+def calculate_parameters(max_index, config):
+    # Step 1: no_plant 계산
+    if max_index == 0:
+        return -1,-1,-1
+    
+    max_index -= 1
+    a = max_index // 4
+    no_plant = max_index - 4 * a
+    pos = a // config
+    lane = a - pos * config
+
+    return lane, pos, no_plant
+
 def render_frame(screen, render_info, clock, myfont, zombie_sprite, plant_sprite, projectile_sprite, agent, DDQN, env):
     global flag, is_selection_window_open, click_count, frame_lane, frame_pos, frame_no_plant, selected_cell
     clock.tick(config.FPS)
+
     screen.fill((130, 200, 100))
     if render_info is not None:
-        frame_info = render_info[flag]
-        flag += 1
+        #print("플래그 수:", flag)
+        #frame_info = render_info[flag]
+        #flag += 1
         flag = len(render_info) - 1
         frame_info = render_info[flag]
-        print("렌더 프레임 수: ", len(render_info))
-        print("진행 프레임 수: ", flag)
+        #print("렌더 프레임 수: ", len(render_info))
+        #print("렌더", flag ," 정보: ", render_info[flag])
+        #print("진행 프레임 수: ", flag)
     else:
         None
     #frame_info = render_info[0] if render_info else None
    
     if frame_info:
+
         ddqn1 = DDQN.get_qvals_for_render(env._get_obs())
+        mask = np.array(env.mask_available_actions())
         print(ddqn1)
-        print(frame_info)
+        action = DDQN.decide_action(env._get_obs(), mask, epsilon=0)
+        #print("액션: ", action)
+        #print("최대 리워드 위치: ", max(ddqn1).item())
+
+        #print(ddqn1)
+        p_lane, p_pos, p_no_plant = calculate_parameters(action, config.N_LANES)
+        #print("최대 리워드 lane: ", p_lane, "pos: ", p_pos, "no_plant: ", p_no_plant)
+        if p_lane != -1 or p_pos != -1:
+            max_cell=(p_lane, p_pos)
+        else:
+            max_cell = None
+
+        #print(frame_info)
         #print("render_frame 그리기")
         cell_size = 75
         offset_border = 100
@@ -248,6 +281,19 @@ def render_frame(screen, render_info, clock, myfont, zombie_sprite, plant_sprite
                              (offset_border + selected_cell[1] * cell_size,
                               offset_border + selected_cell[0] * cell_size,
                               cell_size, cell_size))
+        # max_cell 그리기
+        if max_cell is not None and p_no_plant is not None:
+            p_lane, p_pos = max_cell
+            print("LANE: ", p_lane, "POS: ", p_pos, "no_plnat: ", p_no_plant)
+            plant_name = list(plant_sprite.keys())[p_no_plant]  # no_plant에 해당하는 plant 이름 가져오기
+            transparent_plant = plant_sprite[plant_name].copy()  # sprite 복사
+            transparent_plant.set_alpha(150)  # 투명도 설정 (0~255)
+
+            # sprite 렌더링
+            screen.blit(transparent_plant, 
+                        (offset_border + p_pos * cell_size, 
+                         offset_border + p_lane * cell_size + offset_y - transparent_plant.get_height()))
+
 
         for lane in range(config.N_LANES):
             for zombie_name, pos, offset in frame_info["zombies"][lane]:
@@ -267,7 +313,8 @@ def render_frame(screen, render_info, clock, myfont, zombie_sprite, plant_sprite
                             offset_border + lane * cell_size))
 
         sun_text = myfont.render(f'Sun: {frame_info["sun"]}', False, (0, 0, 0))
-        score_text = myfont.render(f'Score: {frame_info["score"]}', False, (0, 0, 0))
+        score_text = myfont.render(f'Score: {sum_score}', False, (0, 0, 0))
+        #score_text = myfont.render(f'Score: {frame_info["score"]}', False, (0, 0, 0))
         cooldowns_text = myfont.render(f'Cooldowns: {frame_info["cooldowns"]}', False, (0, 0, 0))
         time_text = myfont.render(f'Time: {frame_info["time"]}', False, (0, 0, 0))
         screen.blit(sun_text, (50, 600))
@@ -303,15 +350,8 @@ def render_frame(screen, render_info, clock, myfont, zombie_sprite, plant_sprite
                     # 선택 창의 버튼 클릭 시
                     if 500 + idx * 100 <= mouse_x <= 500 + (idx + 1) * 100 and 300 <= mouse_y <= 400:
                         click_count = 1
-                        if idx == 0:
-                            frame_no_plant = 1
-                        elif idx == 1: 
-                            frame_no_plant = 0
-                        else:
-                            frame_no_plant = idx
-                        
-                        #click_count = agent.decide_action(0,0,0,0)
-                        #click_count = agent.decide_action(0,0,0,0) + 100 # 리턴 값 101나옴 그러면, decide_action 리턴이 1이라는 뜻인데..
+                        frame_no_plant = idx
+                
                 agent.set_parameters(frame_lane,frame_pos, frame_no_plant)
                 is_selection_window_open = False  # 선택 창 닫기
                 selected_cell = None  # 선택 창 닫힐 때 빨간색 표시 제거
@@ -365,7 +405,6 @@ if __name__ == "__main__":
     # threshold = Threshold(seq_length = n_iter, start_epsilon=0.005, end_epsilon=0.005)
 
     for episode_idx in range(n_iter):
-        
         # play episodes
         # epsilon = threshold.epsilon(episode_idx)
         summary = env.play(agent)
@@ -384,7 +423,7 @@ if __name__ == "__main__":
             if save:
                 if sum_score >= best_score:
                     torch.save(agent.policy, nn_name)
-                    best_score = sum_score
+                    best_score = sum_scoreF
             print("---Episode {}, mean score {}".format(episode_idx,sum_score/n_record))
             print("---n_iter {}".format(sum_iter/n_record))
             score_plt.append(sum_score/n_record)

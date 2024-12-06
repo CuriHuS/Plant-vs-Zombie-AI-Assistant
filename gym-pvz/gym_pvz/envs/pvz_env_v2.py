@@ -61,6 +61,7 @@ class PVZEnv_V2(gym.Env):
         self.take_action(action)
         self._scene.step() #Minimum one step
         reward = self._scene.score
+        
         episode_over = self._scene._chrono > config.MAX_FRAMES
         while((not self._scene.move_available()) and (not episode_over)):
             self._scene.step()
@@ -69,6 +70,7 @@ class PVZEnv_V2(gym.Env):
         ob = self._get_obs()
         episode_over = (episode_over) or (self._scene.lives <= 0)
         self._reward = reward
+        print("리워드: ", reward)
         return ob, reward, episode_over, {}
     
     def _get_obs(self):
